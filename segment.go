@@ -23,7 +23,7 @@ type entryHeader struct {
 
 const entryHeaderSize = int(unsafe.Sizeof(entryHeader{}))
 const entryHeaderAlign = int(unsafe.Alignof(entryHeader{}))
-const entryHeaderAlignMask = entryHeaderAlign - 1
+const entryHeaderAlignMask = ^uint32(entryHeaderAlign - 1)
 
 func initSegment(s *segment, bufSize int) {
 	s.rb = newRingBuf(bufSize)
@@ -48,10 +48,10 @@ func (s *segment) put(hash uint32, key []byte, value []byte) {
 	totalLen := keyLen + header.valLen
 	header.valCap = nextNumberAlignToHeader(totalLen) - keyLen
 
-	offset := s.rb.appendAlign(headerData[:], entryHeaderSize)
+	offset := s.rb.append(headerData[:])
 	s.rb.append(key)
 	s.rb.append(value)
-	s.rb.skip(int(header.valCap - header.valLen))
+	s.rb.appendEmpty(int(header.valCap - header.valLen))
 	s.kv[hash] = offset
 }
 
@@ -76,5 +76,5 @@ func (s *segment) get(hash uint32, key []byte, value []byte) (n int, ok bool) {
 }
 
 func nextNumberAlignToHeader(n uint32) uint32 {
-	return (n + uint32(entryHeaderAlign) - 1) & uint32(entryHeaderAlignMask)
+	return (n + uint32(entryHeaderAlign) - 1) & entryHeaderAlignMask
 }

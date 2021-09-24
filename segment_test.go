@@ -16,6 +16,14 @@ func newSegment() *segment {
 	return s
 }
 
+func TestNextNumberAlignToHeader(t *testing.T) {
+	result := nextNumberAlignToHeader(7)
+	assert.Equal(t, uint32(8), result)
+
+	result = nextNumberAlignToHeader(12)
+	assert.Equal(t, uint32(12), result)
+}
+
 func TestSegment_Simple_Set_Get(t *testing.T) {
 	s := newSegment()
 	s.put(40, []byte{1, 2, 3}, []byte{10, 11, 12, 13})
@@ -25,4 +33,8 @@ func TestSegment_Simple_Set_Get(t *testing.T) {
 	assert.Equal(t, true, ok)
 	assert.Equal(t, 4, n)
 	assert.Equal(t, []byte{10, 11, 12, 13}, data[:n])
+
+	assert.Equal(t, 0, s.rb.getBegin())
+	assert.Equal(t, entryHeaderSize+8, s.rb.getEnd())
+	assert.Equal(t, 1024-entryHeaderSize-8, s.rb.getAvailable())
 }
