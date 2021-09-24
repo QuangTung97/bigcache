@@ -39,7 +39,19 @@ func (r *ringBuf) readAt(data []byte, offset int) {
 	max := len(r.data)
 	copy(data, r.data[offset:])
 	if offset+n > max {
-		copy(data[max-offset:], r.data[:])
+		firstPart := max - offset
+		copy(data[firstPart:], r.data)
+	}
+}
+
+func (r *ringBuf) writeAt(data []byte, offset int) {
+	n := len(data)
+	max := len(r.data)
+	copy(r.data[offset:], data)
+	if offset+n > max {
+		firstPart := max - offset
+		secondPart := n - firstPart
+		copy(r.data[:secondPart], data[firstPart:])
 	}
 }
 

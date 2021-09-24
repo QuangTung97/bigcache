@@ -7,9 +7,10 @@ import (
 )
 
 type segment struct {
-	mu sync.Mutex
-	rb ringBuf
-	kv map[uint32]int
+	mu     sync.Mutex
+	rb     ringBuf
+	kv     map[uint32]int
+	getNow func() uint32
 }
 
 type entryHeader struct {
@@ -28,17 +29,18 @@ const entryHeaderAlignMask = ^uint32(entryHeaderAlign - 1)
 func initSegment(s *segment, bufSize int) {
 	s.rb = newRingBuf(bufSize)
 	s.kv = map[uint32]int{}
+	s.getNow = getNowMono
 }
 
-func getNow() uint32 {
+func getNowMono() uint32 {
 	return uint32(memhash.NanoTime() / 1000000000)
 }
 
 func (s *segment) put(hash uint32, key []byte, value []byte) {
 	var headerData [entryHeaderSize]byte
-	header := (*entryHeader)(unsafe.Pointer(&headerData))
+	header := (*entryHeader)(unsafe.Pointer(&headerData[0]))
 	header.hash = hash
-	header.accessTime = getNow()
+	header.accessTime = s.getNow()
 	header.keyLen = uint16(len(key))
 	header.deleted = false
 	header.valLen = uint32(len(value))
@@ -63,7 +65,7 @@ func (s *segment) get(hash uint32, key []byte, value []byte) (n int, ok bool) {
 
 	var headerData [entryHeaderSize]byte
 	s.rb.readAt(headerData[:], offset)
-	header := (*entryHeader)(unsafe.Pointer(&headerData))
+	header := (*entryHeader)(unsafe.Pointer(&headerData[0]))
 	if int(header.keyLen) != len(key) {
 		return 0, false
 	}
@@ -72,6 +74,9 @@ func (s *segment) get(hash uint32, key []byte, value []byte) (n int, ok bool) {
 	}
 
 	s.rb.readAt(value[:header.valLen], offset+entryHeaderSize+int(header.keyLen))
+
+	header.accessTime = s.getNow()
+	s.rb.writeAt(headerData[:], offset)
 	return int(header.valLen), true
 }
 
