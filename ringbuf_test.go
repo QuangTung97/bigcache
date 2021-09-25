@@ -173,3 +173,15 @@ func TestRingBuf_Evacuate_Begin_Near_Max(t *testing.T) {
 	rb.readAt(data, 2)
 	assert.Equal(t, []byte{6, 7, 8, 21, 22, 23, 24, 25, 1, 2, 3, 4, 5}, data)
 }
+
+func TestRingBuf_WriteAt_WrapAround(t *testing.T) {
+	rb := newRingBuf(7)
+
+	rb.writeAt([]byte{10, 11, 12, 13, 14}, 5)
+
+	assert.Equal(t, []byte{12, 13, 14, 0, 0, 10, 11}, rb.data)
+
+	data := make([]byte, 5)
+	rb.readAt(data, 5)
+	assert.Equal(t, []byte{10, 11, 12, 13, 14}, data)
+}

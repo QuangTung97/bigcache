@@ -3,6 +3,7 @@ package bigcache
 import (
 	"github.com/QuangTung97/bigcache/memhash"
 	"sync"
+	"sync/atomic"
 	"unsafe"
 )
 
@@ -10,6 +11,7 @@ type segment struct {
 	mu     sync.Mutex
 	rb     ringBuf
 	kv     map[uint32]int
+	total  uint64
 	getNow func() uint32
 }
 
@@ -38,23 +40,61 @@ func getNowMono() uint32 {
 
 func (s *segment) put(hash uint32, key []byte, value []byte) {
 	var headerData [entryHeaderSize]byte
+	offset, ok := s.kv[hash]
+	if ok {
+		s.rb.readAt(headerData[:], offset)
+		header := (*entryHeader)(unsafe.Pointer(&headerData[0]))
+		if s.keyEqual(header, offset, key) {
+			if len(value) <= int(header.valCap) {
+				s.rb.writeAt(value, offset+entryHeaderSize+int(header.keyLen))
+				header.valLen = uint32(len(value))
+				header.accessTime = s.getNow()
+				s.rb.writeAt(headerData[:], offset)
+				return
+			}
+		}
+		header.deleted = true
+		s.rb.writeAt(headerData[:], offset)
+	}
+
+	keyLen := uint16(len(key))
+	valLen := uint32(len(value))
+	totalLen := uint32(keyLen) + valLen
+	totalLenAligned := nextNumberAlignToHeader(totalLen)
+
+	totalSize := entryHeaderSize + int(totalLenAligned)
+	s.evacuate(totalSize)
+
 	header := (*entryHeader)(unsafe.Pointer(&headerData[0]))
 	header.hash = hash
 	header.accessTime = s.getNow()
-	header.keyLen = uint16(len(key))
+	header.keyLen = keyLen
 	header.deleted = false
-	header.valLen = uint32(len(value))
-	header.valCap = header.valLen
+	header.valLen = valLen
+	header.valCap = totalLenAligned - uint32(keyLen)
 
-	keyLen := uint32(header.keyLen)
-	totalLen := keyLen + header.valLen
-	header.valCap = nextNumberAlignToHeader(totalLen) - keyLen
-
-	offset := s.rb.append(headerData[:])
+	offset = s.rb.append(headerData[:])
 	s.rb.append(key)
 	s.rb.append(value)
 	s.rb.appendEmpty(int(header.valCap - header.valLen))
 	s.kv[hash] = offset
+
+	atomic.AddUint64(&s.total, 1)
+}
+
+func (s *segment) evacuate(expectedSize int) {
+	var headerData [entryHeaderSize]byte
+	for s.rb.getAvailable() < expectedSize {
+		offset := s.rb.getBegin()
+		s.rb.readAt(headerData[:], offset)
+		header := (*entryHeader)(unsafe.Pointer(&headerData[0]))
+		header.deleted = true
+		s.rb.writeAt(headerData[:], offset)
+		size := entryHeaderSize + int(header.keyLen) + int(header.valCap)
+		s.rb.skip(size)
+		delete(s.kv, header.hash)
+		atomic.AddUint64(&s.total, ^uint64(0))
+	}
 }
 
 func (s *segment) get(hash uint32, key []byte, value []byte) (n int, ok bool) {
@@ -66,10 +106,7 @@ func (s *segment) get(hash uint32, key []byte, value []byte) (n int, ok bool) {
 	var headerData [entryHeaderSize]byte
 	s.rb.readAt(headerData[:], offset)
 	header := (*entryHeader)(unsafe.Pointer(&headerData[0]))
-	if int(header.keyLen) != len(key) {
-		return 0, false
-	}
-	if ok := s.rb.bytesEqual(offset+entryHeaderSize, key); !ok {
+	if !s.keyEqual(header, offset, key) {
 		return 0, false
 	}
 
@@ -78,6 +115,20 @@ func (s *segment) get(hash uint32, key []byte, value []byte) (n int, ok bool) {
 	header.accessTime = s.getNow()
 	s.rb.writeAt(headerData[:], offset)
 	return int(header.valLen), true
+}
+
+func (s *segment) keyEqual(header *entryHeader, offset int, key []byte) bool {
+	if int(header.keyLen) != len(key) {
+		return false
+	}
+	if ok := s.rb.bytesEqual(offset+entryHeaderSize, key); !ok {
+		return false
+	}
+	return true
+}
+
+func (s *segment) getTotal() uint64 {
+	return atomic.LoadUint64(&s.total)
 }
 
 func nextNumberAlignToHeader(n uint32) uint32 {
