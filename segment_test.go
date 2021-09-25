@@ -129,6 +129,7 @@ func TestSegment_Put_With_Exist_Key_Same_Length(t *testing.T) {
 	s.put(40, []byte{1, 2, 3}, []byte{20, 21, 22, 23})
 
 	assert.Equal(t, 1, len(s.kv))
+	assert.Equal(t, uint64(1), s.getTotal())
 	assert.Equal(t, entryHeaderSize+8, s.rb.getEnd())
 	assert.Equal(t, prevAvail, s.rb.getAvailable())
 
@@ -149,6 +150,7 @@ func TestSegment_Put_With_Exist_Key_Same_Length_Different_Length_Still_In_Cap(t 
 	s.put(40, []byte{1, 2, 3}, []byte{20, 21, 22, 23, 24})
 
 	assert.Equal(t, 1, len(s.kv))
+	assert.Equal(t, uint64(1), s.getTotal())
 	assert.Equal(t, entryHeaderSize+8, s.rb.getEnd())
 	assert.Equal(t, prevAvail, s.rb.getAvailable())
 
@@ -176,6 +178,7 @@ func TestSegment_Put_With_Exist_Key_Not_In_Cap(t *testing.T) {
 	s.put(40, []byte{1, 2, 3}, []byte{20, 21, 22, 23, 24, 25})
 
 	assert.Equal(t, 1, len(s.kv))
+	assert.Equal(t, uint64(1), s.getTotal())
 	assert.Equal(t, entryHeaderSize*2+8+12, s.rb.getEnd())
 	assert.Equal(t, prevAvail-entryHeaderSize-12, s.rb.getAvailable())
 
@@ -216,6 +219,7 @@ func TestSegment_Put_Evacuate(t *testing.T) {
 
 	assert.Equal(t, 3, len(s.kv))
 	assert.Equal(t, uint64(3), s.getTotal())
+	assert.Equal(t, entryHeaderSize+8, s.rb.getBegin())
 
 	data := make([]byte, 100)
 	n, ok := s.get(40, []byte{1, 2, 3}, data)

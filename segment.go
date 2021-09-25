@@ -40,8 +40,8 @@ func getNowMono() uint32 {
 
 func (s *segment) put(hash uint32, key []byte, value []byte) {
 	var headerData [entryHeaderSize]byte
-	offset, ok := s.kv[hash]
-	if ok {
+	offset, existed := s.kv[hash]
+	if existed {
 		s.rb.readAt(headerData[:], offset)
 		header := (*entryHeader)(unsafe.Pointer(&headerData[0]))
 		if s.keyEqual(header, offset, key) {
@@ -79,7 +79,9 @@ func (s *segment) put(hash uint32, key []byte, value []byte) {
 	s.rb.appendEmpty(int(header.valCap - header.valLen))
 	s.kv[hash] = offset
 
-	atomic.AddUint64(&s.total, 1)
+	if !existed {
+		atomic.AddUint64(&s.total, 1)
+	}
 }
 
 func (s *segment) evacuate(expectedSize int) {
