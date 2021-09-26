@@ -24,9 +24,10 @@ func (r *ringBuf) append(data []byte) int {
 	end := r.getEnd()
 	copy(r.data[end:], data)
 	if end+n > max {
-		copy(r.data, data[end+n-max:])
+		firstPart := max - end
+		copy(r.data, data[firstPart:])
 	}
-	r.size += len(data)
+	r.size += n
 	return end
 }
 
@@ -35,6 +36,8 @@ func (r *ringBuf) appendEmpty(n int) {
 }
 
 func (r *ringBuf) readAt(data []byte, offset int) {
+	offset = offset % len(r.data)
+
 	n := len(data)
 	max := len(r.data)
 	copy(data, r.data[offset:])
@@ -45,6 +48,8 @@ func (r *ringBuf) readAt(data []byte, offset int) {
 }
 
 func (r *ringBuf) writeAt(data []byte, offset int) {
+	offset = offset % len(r.data)
+
 	n := len(data)
 	max := len(r.data)
 	copy(r.data[offset:], data)
@@ -77,6 +82,8 @@ func (r *ringBuf) skip(n int) {
 }
 
 func (r *ringBuf) bytesEqual(from int, data []byte) bool {
+	from = from % len(r.data)
+
 	n := len(data)
 	toOffset := from + n
 	max := len(r.data)
@@ -91,23 +98,31 @@ func (r *ringBuf) bytesEqual(from int, data []byte) bool {
 	return bytes.Equal(r.data[from:toOffset], data)
 }
 
-func (r *ringBuf) evacuate(size int) int {
-	begin := r.getBegin()
-	end := r.getEnd()
+func (r *ringBuf) evacuateContinuousSource(from int, end int, size int) {
 	max := len(r.data)
 
 	if end+size > max {
 		firstPart := max - end
 		secondPart := size - firstPart
-		copy(r.data[end:], r.data[begin:])
-		copy(r.data[:secondPart], r.data[begin+firstPart:])
-	} else if begin+size > max {
+		copy(r.data[end:], r.data[from:])
+		copy(r.data[:secondPart], r.data[from+firstPart:])
+	} else {
+		copy(r.data[end:end+size], r.data[from:])
+	}
+}
+
+func (r *ringBuf) evacuate(size int) int {
+	begin := r.getBegin()
+	end := r.getEnd()
+	max := len(r.data)
+
+	if begin+size > max {
 		firstPart := max - begin
 		secondPart := size - firstPart
-		copy(r.data[end:], r.data[begin:])
-		copy(r.data[end+firstPart:], r.data[:secondPart])
+		r.evacuateContinuousSource(begin, end, firstPart)
+		r.evacuateContinuousSource(0, end+firstPart, secondPart)
 	} else {
-		copy(r.data[end:end+size], r.data[begin:])
+		r.evacuateContinuousSource(begin, end, size)
 	}
 
 	r.increaseBegin(size)

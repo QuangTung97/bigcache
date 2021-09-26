@@ -1,7 +1,10 @@
 package bigcache
 
 import (
+	"fmt"
+	"github.com/QuangTung97/bigcache/memhash"
 	"github.com/stretchr/testify/assert"
+	"math/rand"
 	"testing"
 	"unsafe"
 )
@@ -479,4 +482,50 @@ func TestSegment_Put_Evacuate_Need_Reset_ConsecutiveEvacuation(t *testing.T) {
 	assert.Equal(t, 11, len(s.kv))
 	assert.Equal(t, uint64(11), s.getTotal())
 	assert.Equal(t, s.totalAccessTime, s.getSumTotalAccessTime())
+}
+
+func fillRandom(data []byte) {
+	for i := range data {
+		v := byte(rand.Intn(256))
+		data[i] = v
+	}
+}
+
+func appendKeyValue(key []byte, val []byte) []byte {
+	data := make([]byte, len(key)-1+len(val))
+	copy(data, key[1:])
+	copy(data[len(key)-1:], val)
+	return data
+}
+
+func TestAppendKeyValue(t *testing.T) {
+	data := appendKeyValue([]byte{1, 2, 3}, []byte{4, 5, 6, 7})
+	assert.Equal(t, []byte{2, 3, 4, 5, 6, 7}, data)
+}
+
+func TestSegment_Stress_Testing(t *testing.T) {
+	s := newSegmentSize(789)
+	s.getNow = monoGetNow(0)
+
+	hashAlloc := map[uint64][]byte{}
+
+	for i := 0; i < 100; i++ {
+		keyLen := 2 + rand.Intn(10)
+		valueLen := 1 + rand.Intn(15)
+		key := make([]byte, keyLen)
+		value := make([]byte, valueLen)
+		fillRandom(key[1:])
+		fillRandom(value)
+
+		h := memhash.Hash(appendKeyValue(key, value))
+		key[0] = uint8(h)
+		hashAlloc[h] = key
+		s.put(uint32(h), key, value)
+	}
+
+	for hash, key := range hashAlloc {
+		data := make([]byte, 100)
+		n, ok := s.get(uint32(hash), key, data)
+		fmt.Println(n, ok)
+	}
 }

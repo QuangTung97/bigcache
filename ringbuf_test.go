@@ -5,7 +5,7 @@ import (
 	"testing"
 )
 
-func TestRingBuf(t *testing.T) {
+func TestRingBuf_Append(t *testing.T) {
 	rb := newRingBuf(16)
 
 	assert.Equal(t, 0, rb.getEnd())
@@ -36,7 +36,7 @@ func TestRingBuf(t *testing.T) {
 	assert.Equal(t, 6, rb.getAvailable())
 }
 
-func TestRingBuf_WrapAround(t *testing.T) {
+func TestRingBuf_Append_WrapAround(t *testing.T) {
 	rb := newRingBuf(16)
 	rb.append([]byte{20, 21, 22, 23})
 	rb.append([]byte{20, 21, 22, 23})
@@ -120,7 +120,7 @@ func TestRingBuf_Evacuate_Simple(t *testing.T) {
 	assert.Equal(t, []byte{5, 6, 7, 8, 1, 2, 3, 4}, data)
 }
 
-func TestRingBuf_Evacuate_WrapAround(t *testing.T) {
+func TestRingBuf_Evacuate_End_WrapAround(t *testing.T) {
 	rb := newRingBuf(16)
 	rb.append([]byte{1, 2, 3, 4, 5, 6, 7, 8})
 	rb.append([]byte{21, 22, 23, 24, 25, 26})
@@ -152,6 +152,24 @@ func TestRingBuf_Evacuate_Backward(t *testing.T) {
 	assert.Equal(t, []byte{5, 6, 7, 8, 21}, data)
 	assert.Equal(t, 9, rb.getBegin())
 	assert.Equal(t, 7, rb.getEnd())
+}
+
+func TestRingBuf_Evacuate_Both_From_And_To_Are_Wrap_Around_End_Smaller_Than_Begin(t *testing.T) {
+	rb := newRingBuf(16)
+	rb.append([]byte{1, 2, 3, 4, 5, 6, 7, 8})
+	rb.append([]byte{9, 10, 11, 12, 13, 14, 15, 16})
+	rb.skip(13)
+	rb.append([]byte{
+		51, 52, 53, 54,
+		55, 56, 57, 58,
+		59, 60, 61,
+	})
+	rb.evacuate(6)
+	data := make([]byte, 6)
+	rb.readAt(data, 11)
+	assert.Equal(t, []byte{14, 15, 16, 51, 52, 53}, data)
+	assert.Equal(t, 1, rb.getEnd())
+	assert.Equal(t, 3, rb.getBegin())
 }
 
 func TestRingBuf_Evacuate_Begin_Near_Max(t *testing.T) {

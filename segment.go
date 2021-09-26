@@ -98,6 +98,7 @@ func (s *segment) put(hash uint32, key []byte, value []byte) {
 func (s *segment) evacuate(expectedSize int) {
 	var headerData [entryHeaderSize]byte
 	consecutiveEvacuation := 0
+
 	for s.rb.getAvailable() < expectedSize {
 		offset := s.rb.getBegin()
 		s.rb.readAt(headerData[:], offset)
