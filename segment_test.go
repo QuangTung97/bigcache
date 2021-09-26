@@ -61,6 +61,10 @@ func TestNextNumberAlignToHeader(t *testing.T) {
 	assert.Equal(t, uint32(12), result)
 }
 
+func TestSegmentSizeAlignToCacheLine(t *testing.T) {
+	assert.Equal(t, 64*2, int(unsafe.Sizeof(segment{})))
+}
+
 func TestSegment_Simple_Set_Get(t *testing.T) {
 	s := newSegment()
 	s.put(40, []byte{1, 2, 3}, []byte{10, 11, 12, 13})
@@ -426,4 +430,53 @@ func TestSegment_Put_Evacuate_After_Deleted(t *testing.T) {
 	n, ok := s.get(41, []byte{1, 2, 1}, data)
 	assert.Equal(t, true, ok)
 	assert.Equal(t, []byte{101, 102, 103, 101}, data[:n])
+}
+
+func TestSegment_Put_Evacuate_Need_Reset_ConsecutiveEvacuation(t *testing.T) {
+	const entrySize = entryHeaderSize + 8
+	s := newSegmentSize(entrySize * 12)
+	s.maxConsecutiveEvacuation = 2
+	s.getNow = monoGetNow(0)
+
+	s.put(40, []byte{1, 2, 0}, []byte{101, 102, 103, 100})
+	s.put(41, []byte{1, 2, 1}, []byte{101, 102, 103, 101})
+	s.put(42, []byte{1, 2, 2}, []byte{101, 102, 103, 102})
+	s.put(43, []byte{1, 2, 3}, []byte{101, 102, 103, 103})
+
+	s.put(44, []byte{1, 2, 4}, []byte{101, 102, 103, 104})
+	s.put(45, []byte{1, 2, 5}, []byte{101, 102, 103, 105})
+	s.put(46, []byte{1, 2, 6}, []byte{101, 102, 103, 106})
+	s.put(47, []byte{1, 2, 7}, []byte{101, 102, 103, 107})
+
+	s.put(48, []byte{1, 2, 8}, []byte{101, 102, 103, 108})
+	s.put(49, []byte{1, 2, 9}, []byte{101, 102, 103, 109})
+	s.put(50, []byte{1, 2, 10}, []byte{101, 102, 103, 110})
+	s.put(51, []byte{1, 2, 11}, []byte{101, 102, 103, 111})
+
+	data := make([]byte, 100)
+	s.get(40, []byte{1, 2, 0}, data)
+	s.get(41, []byte{1, 2, 1}, data)
+	s.get(42, []byte{1, 2, 2}, data)
+	s.get(43, []byte{1, 2, 3}, data)
+
+	s.get(44, []byte{1, 2, 4}, data)
+
+	s.put(60, []byte{5, 5, 5}, []byte{10, 10, 10, 10, 10, 10})
+
+	_, ok := s.get(40, []byte{1, 2, 0}, data)
+	assert.Equal(t, true, ok)
+	_, ok = s.get(41, []byte{1, 2, 1}, data)
+	assert.Equal(t, true, ok)
+	_, ok = s.get(42, []byte{1, 2, 2}, data)
+	assert.Equal(t, false, ok)
+	_, ok = s.get(43, []byte{1, 2, 3}, data)
+	assert.Equal(t, true, ok)
+	_, ok = s.get(44, []byte{1, 2, 4}, data)
+	assert.Equal(t, true, ok)
+	_, ok = s.get(45, []byte{1, 2, 5}, data)
+	assert.Equal(t, false, ok)
+
+	assert.Equal(t, 11, len(s.kv))
+	assert.Equal(t, uint64(11), s.getTotal())
+	assert.Equal(t, s.totalAccessTime, s.getSumTotalAccessTime())
 }

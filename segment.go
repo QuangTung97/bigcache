@@ -16,6 +16,8 @@ type segment struct {
 
 	maxConsecutiveEvacuation int
 	totalAccessTime          uint64
+
+	_padding [34]byte // for align with cache lines
 }
 
 type entryHeader struct {
@@ -105,6 +107,7 @@ func (s *segment) evacuate(expectedSize int) {
 
 		expired := atomic.LoadUint64(&s.total)*uint64(header.accessTime) < s.totalAccessTime
 		if header.deleted || expired || consecutiveEvacuation >= s.maxConsecutiveEvacuation {
+			consecutiveEvacuation = 0
 			s.rb.skip(size)
 			delete(s.kv, header.hash)
 			atomic.AddUint64(&s.total, ^uint64(0))
