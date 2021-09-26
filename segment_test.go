@@ -45,6 +45,14 @@ func (s *segment) getHeaderAtOffset(offset int) *entryHeader {
 	return (*entryHeader)(unsafe.Pointer(&headerData[0]))
 }
 
+func monoGetNow(start uint32) func() uint32 {
+	now := start
+	return func() uint32 {
+		now++
+		return now
+	}
+}
+
 func TestNextNumberAlignToHeader(t *testing.T) {
 	result := nextNumberAlignToHeader(7)
 	assert.Equal(t, uint32(8), result)
@@ -221,11 +229,7 @@ func TestSegment_Put_Same_Hash_Diff_Key(t *testing.T) {
 
 func TestSegment_Put_Evacuate(t *testing.T) {
 	s := newSegmentSize(entryHeaderSize*3 + 8 + 12 + 8)
-	now := uint32(0)
-	s.getNow = func() uint32 {
-		now++
-		return now
-	}
+	s.getNow = monoGetNow(0)
 
 	s.put(40, []byte{1, 2, 3}, []byte{10, 11, 12})
 	s.put(41, []byte{5, 6, 7}, []byte{20, 21, 22, 23, 24, 25})
@@ -247,11 +251,7 @@ func TestSegment_Put_Evacuate(t *testing.T) {
 func TestSegment_Put_Evacuate_Skip_Recent_Used(t *testing.T) {
 	const entrySize = entryHeaderSize + 8
 	s := newSegmentSize(entrySize * 5)
-	now := uint32(0)
-	s.getNow = func() uint32 {
-		now++
-		return now
-	}
+	s.getNow = monoGetNow(0)
 
 	s.put(40, []byte{1, 2, 0}, []byte{101, 102, 103, 100})
 	s.put(41, []byte{1, 2, 1}, []byte{101, 102, 103, 101})
@@ -286,11 +286,7 @@ func TestSegment_Put_Evacuate_Skip_Recent_Used(t *testing.T) {
 func TestSegment_Put_Evacuate_Reach_Max_Evacuation(t *testing.T) {
 	const entrySize = entryHeaderSize + 8
 	s := newSegmentSize(entrySize * 12)
-	now := uint32(0)
-	s.getNow = func() uint32 {
-		now++
-		return now
-	}
+	s.getNow = monoGetNow(0)
 
 	s.put(40, []byte{1, 2, 0}, []byte{101, 102, 103, 100})
 	s.put(41, []byte{1, 2, 1}, []byte{101, 102, 103, 101})
@@ -333,11 +329,7 @@ func TestSegment_Put_Evacuate_Reach_Max_Evacuation(t *testing.T) {
 
 func TestSegment_Put_Existing_Check_Total_Access_Time(t *testing.T) {
 	s := newSegment()
-	now := uint32(200)
-	s.getNow = func() uint32 {
-		now++
-		return now
-	}
+	s.getNow = monoGetNow(200)
 
 	s.put(40, []byte{1, 2, 3}, []byte{101, 102, 103, 104})
 	s.put(40, []byte{1, 2, 3}, []byte{101, 102, 103, 0})
@@ -347,15 +339,91 @@ func TestSegment_Put_Existing_Check_Total_Access_Time(t *testing.T) {
 
 func TestSegment_Put_Same_Hash_Diff_Key_Check_Total_Access_Time(t *testing.T) {
 	s := newSegment()
-	now := uint32(200)
-	s.getNow = func() uint32 {
-		now++
-		return now
-	}
+	s.getNow = monoGetNow(200)
 
 	s.put(40, []byte{1, 2, 3}, []byte{101, 102, 103, 104})
 	s.put(40, []byte{1, 2, 4}, []byte{101, 102, 103, 0})
 
 	assert.Equal(t, uint64(1), s.getTotal())
 	assert.Equal(t, s.totalAccessTime, s.getSumTotalAccessTime())
+}
+
+func TestSegment_Delete_Simple(t *testing.T) {
+	s := newSegment()
+	s.getNow = monoGetNow(200)
+
+	s.put(40, []byte{1, 2, 3}, []byte{101, 102, 103, 104})
+	affected := s.delete(40, []byte{1, 2, 3})
+	assert.Equal(t, true, affected)
+
+	assert.Equal(t, uint64(0), s.getTotal())
+
+	data := make([]byte, 100)
+	n, ok := s.get(40, []byte{1, 2, 3}, data)
+	assert.Equal(t, false, ok)
+	assert.Equal(t, 0, n)
+	assert.Equal(t, s.totalAccessTime, s.getSumTotalAccessTime())
+}
+
+func TestSegment_Delete_Different_Hash(t *testing.T) {
+	s := newSegment()
+	s.getNow = monoGetNow(200)
+
+	s.put(40, []byte{1, 2, 3}, []byte{101, 102, 103, 104})
+	s.put(41, []byte{1, 2, 4}, []byte{101, 102, 103, 105})
+
+	affected := s.delete(42, []byte{1, 2, 3})
+	assert.Equal(t, false, affected)
+
+	assert.Equal(t, uint64(2), s.getTotal())
+
+	data := make([]byte, 100)
+	n, ok := s.get(40, []byte{1, 2, 3}, data)
+	assert.Equal(t, true, ok)
+	assert.Equal(t, []byte{101, 102, 103, 104}, data[:n])
+	assert.Equal(t, s.totalAccessTime, s.getSumTotalAccessTime())
+}
+
+func TestSegment_Delete_Same_Hash_Diff_Key(t *testing.T) {
+	s := newSegment()
+	s.getNow = monoGetNow(200)
+
+	s.put(40, []byte{1, 2, 3}, []byte{101, 102, 103, 104})
+	s.put(41, []byte{1, 2, 4}, []byte{101, 102, 103, 105})
+
+	affected := s.delete(40, []byte{1, 2, 5})
+	assert.Equal(t, false, affected)
+
+	assert.Equal(t, uint64(2), s.getTotal())
+
+	data := make([]byte, 100)
+	n, ok := s.get(40, []byte{1, 2, 3}, data)
+	assert.Equal(t, true, ok)
+	assert.Equal(t, []byte{101, 102, 103, 104}, data[:n])
+	assert.Equal(t, s.totalAccessTime, s.getSumTotalAccessTime())
+}
+
+func TestSegment_Put_Evacuate_After_Deleted(t *testing.T) {
+	const entrySize = entryHeaderSize + 8
+	s := newSegmentSize(entrySize * 5)
+	s.getNow = monoGetNow(0)
+
+	s.put(40, []byte{1, 2, 0}, []byte{101, 102, 103, 100})
+	s.put(41, []byte{1, 2, 1}, []byte{101, 102, 103, 101})
+	s.put(42, []byte{1, 2, 2}, []byte{101, 102, 103, 102})
+	s.put(43, []byte{1, 2, 3}, []byte{101, 102, 103, 103})
+	s.put(44, []byte{1, 2, 4}, []byte{101, 102, 103, 104})
+
+	data := make([]byte, 100)
+	s.get(40, []byte{1, 2, 0}, data)
+	s.delete(40, []byte{1, 2, 0})
+
+	s.put(45, []byte{1, 2, 5}, []byte{101, 102, 103, 105})
+
+	assert.Equal(t, uint64(4), s.getTotal())
+
+	data = make([]byte, 100)
+	n, ok := s.get(41, []byte{1, 2, 1}, data)
+	assert.Equal(t, true, ok)
+	assert.Equal(t, []byte{101, 102, 103, 101}, data[:n])
 }

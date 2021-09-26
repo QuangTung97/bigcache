@@ -132,13 +132,34 @@ func (s *segment) get(hash uint32, key []byte, value []byte) (n int, ok bool) {
 
 	s.rb.readAt(value[:header.valLen], offset+entryHeaderSize+int(header.keyLen))
 
-	oldAccessTime := header.accessTime
+	s.totalAccessTime -= uint64(header.accessTime)
 	header.accessTime = s.getNow()
 	s.rb.writeAt(headerData[:], offset)
-
-	s.totalAccessTime += uint64(header.accessTime - oldAccessTime)
+	s.totalAccessTime += uint64(header.accessTime)
 
 	return int(header.valLen), true
+}
+
+func (s *segment) delete(hash uint32, key []byte) bool {
+	offset, ok := s.kv[hash]
+	if !ok {
+		return false
+	}
+
+	var headerData [entryHeaderSize]byte
+	s.rb.readAt(headerData[:], offset)
+	header := (*entryHeader)(unsafe.Pointer(&headerData[0]))
+	if !s.keyEqual(header, offset, key) {
+		return false
+	}
+
+	header.deleted = true
+	s.rb.writeAt(headerData[:], offset)
+	delete(s.kv, hash)
+	atomic.AddUint64(&s.total, ^uint64(0))
+	s.totalAccessTime -= uint64(header.accessTime)
+
+	return true
 }
 
 func (s *segment) keyEqual(header *entryHeader, offset int, key []byte) bool {
