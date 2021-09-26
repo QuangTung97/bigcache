@@ -562,3 +562,45 @@ func TestSegment_Stress_Testing(t *testing.T) {
 	}
 	fmt.Println(hitCount)
 }
+
+func BenchmarkSegmentPut(b *testing.B) {
+	b.StopTimer()
+
+	key := make([]byte, 32)
+	value := make([]byte, 200)
+	data := make([]byte, 500)
+
+	num := (*uint64)(unsafe.Pointer(&key[0]))
+
+	fillRandom(key)
+	fillRandom(value)
+
+	tmp := make([]byte, len(key))
+	copy(tmp, key)
+
+	s := newSegmentSize(2000000)
+
+	const actionCount = 10000
+
+	b.StartTimer()
+	hitCount := 0
+	for n := 0; n < b.N; n++ {
+		for i := 0; i < actionCount; i++ {
+			*num++
+			hash := memhash.Hash(key)
+			s.put(uint32(hash), key, value)
+		}
+
+		copy(key, tmp)
+
+		for i := 0; i < actionCount; i++ {
+			*num++
+			hash := memhash.Hash(key)
+			_, ok := s.get(uint32(hash), key, data)
+			if ok {
+				hitCount++
+			}
+		}
+	}
+	fmt.Println(hitCount, b.N)
+}
