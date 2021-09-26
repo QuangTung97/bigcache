@@ -43,20 +43,20 @@ func TestRingBuf_Append_WrapAround(t *testing.T) {
 	rb.append([]byte{20, 21, 22, 23})
 
 	rb.skip(8)
-	rb.append([]byte{1, 2, 3, 4, 5, 6, 7, 8})
-	assert.Equal(t, 4, rb.getEnd())
+	rb.append([]byte{1, 2, 3, 4, 5, 6, 7})
+	assert.Equal(t, 3, rb.getEnd())
 
 	rb.append([]byte{10, 11})
-	assert.Equal(t, 6, rb.getEnd())
-	assert.Equal(t, 2, rb.getAvailable())
+	assert.Equal(t, 5, rb.getEnd())
+	assert.Equal(t, 3, rb.getAvailable())
 
-	data := make([]byte, 6)
+	data := make([]byte, 5)
 	rb.readAt(data, 0)
-	assert.Equal(t, []byte{5, 6, 7, 8, 10, 11}, data)
+	assert.Equal(t, []byte{5, 6, 7, 10, 11}, data)
 
-	data = make([]byte, 8)
+	data = make([]byte, 7)
 	rb.readAt(data, 12)
-	assert.Equal(t, []byte{1, 2, 3, 4, 5, 6, 7, 8}, data)
+	assert.Equal(t, []byte{1, 2, 3, 4, 5, 6, 7}, data)
 }
 
 func TestRingBuf_Skip_Wrap_Around(t *testing.T) {
