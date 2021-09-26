@@ -6,6 +6,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"math/rand"
 	"testing"
+	"time"
 	"unsafe"
 )
 
@@ -504,12 +505,24 @@ func TestAppendKeyValue(t *testing.T) {
 }
 
 func TestSegment_Stress_Testing(t *testing.T) {
-	s := newSegmentSize(789)
+	s := newSegmentSize(123456)
 	s.getNow = monoGetNow(0)
 
-	hashAlloc := map[uint64][]byte{}
+	rand.Seed(time.Now().Unix())
 
-	for i := 0; i < 100; i++ {
+	type keyUsed struct {
+		hash uint64
+		key  []byte
+	}
+
+	const keyCount = 10000
+	const touchCount = 5
+
+	keyUsedList := make([]keyUsed, 0, keyCount)
+
+	placeholder := make([]byte, 1000)
+
+	for i := 0; i < keyCount; i++ {
 		keyLen := 2 + rand.Intn(10)
 		valueLen := 1 + rand.Intn(15)
 		key := make([]byte, keyLen)
@@ -517,15 +530,35 @@ func TestSegment_Stress_Testing(t *testing.T) {
 		fillRandom(key[1:])
 		fillRandom(value)
 
+		for k := 0; k < touchCount; k++ {
+			if len(keyUsedList) < 1000 {
+				break
+			}
+			index := rand.Intn(len(keyUsedList))
+			e := keyUsedList[index]
+			s.get(uint32(e.hash), e.key, placeholder)
+		}
+
 		h := memhash.Hash(appendKeyValue(key, value))
 		key[0] = uint8(h)
-		hashAlloc[h] = key
+		keyUsedList = append(keyUsedList, keyUsed{
+			hash: h,
+			key:  key,
+		})
+
 		s.put(uint32(h), key, value)
 	}
 
-	for hash, key := range hashAlloc {
+	hitCount := 0
+	for _, e := range keyUsedList {
 		data := make([]byte, 100)
-		n, ok := s.get(uint32(hash), key, data)
-		fmt.Println(n, ok)
+		n, ok := s.get(uint32(e.hash), e.key, data)
+		if ok {
+			hitCount++
+			value := data[:n]
+			h := memhash.Hash(appendKeyValue(e.key, value))
+			assert.Equal(t, uint8(h), e.key[0])
+		}
 	}
+	fmt.Println(hitCount)
 }
