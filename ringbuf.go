@@ -91,7 +91,7 @@ func (r *ringBuf) bytesEqual(from int, data []byte) bool {
 	return bytes.Equal(r.data[from:toOffset], data)
 }
 
-func (r *ringBuf) evacuate(size int) {
+func (r *ringBuf) evacuate(size int) int {
 	begin := r.getBegin()
 	end := r.getEnd()
 	max := len(r.data)
@@ -111,4 +111,5 @@ func (r *ringBuf) evacuate(size int) {
 	}
 
 	r.increaseBegin(size)
+	return end
 }

@@ -144,7 +144,9 @@ func TestRingBuf_Evacuate_Backward(t *testing.T) {
 	assert.Equal(t, 4, rb.getBegin())
 	assert.Equal(t, 2, rb.getEnd())
 
-	rb.evacuate(5)
+	prevEnd := rb.evacuate(5)
+	assert.Equal(t, 2, prevEnd)
+
 	data := make([]byte, 5)
 	rb.readAt(data, 2)
 	assert.Equal(t, []byte{5, 6, 7, 8, 21}, data)
@@ -165,7 +167,8 @@ func TestRingBuf_Evacuate_Begin_Near_Max(t *testing.T) {
 	rb.readAt(data, 10)
 	assert.Equal(t, []byte{23, 24, 25, 1, 2, 3, 4, 5, 6, 7, 8, 21, 22}, data)
 
-	rb.evacuate(8)
+	prevEnd := rb.evacuate(8)
+	assert.Equal(t, 7, prevEnd)
 	assert.Equal(t, 2, rb.getBegin())
 	assert.Equal(t, 15, rb.getEnd())
 
