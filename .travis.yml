@@ -2,7 +2,6 @@
 
 language: go
 
-# create test database
 before_install:
   - go get github.com/mattn/goveralls
   - make install-tools
