@@ -55,6 +55,9 @@ func TestCache(t *testing.T) {
 	assert.Equal(t, false, ok)
 	assert.Equal(t, []byte{}, value[:n])
 
+	assert.Equal(t, uint64(3), c.GetTotal())
+	assert.Equal(t, uint64(2), c.GetHitCount())
+
 	ok = c.Delete([]byte{10, 11, 12})
 	assert.Equal(t, true, ok)
 
@@ -65,6 +68,7 @@ func TestCache(t *testing.T) {
 	assert.Equal(t, false, ok)
 	assert.Equal(t, []byte{}, value[:n])
 
+	assert.Equal(t, uint64(2), c.GetTotal())
 	assert.Equal(t, uint64(2), c.GetHitCount())
 	assert.Equal(t, uint64(4), c.GetAccessCount())
 }

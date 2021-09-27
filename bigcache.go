@@ -88,6 +88,15 @@ func (c *Cache) GetAccessCount() uint64 {
 	return count
 }
 
+// GetTotal ...
+func (c *Cache) GetTotal() uint64 {
+	count := uint64(0)
+	for i := range c.segments {
+		count += c.segments[i].getTotal()
+	}
+	return count
+}
+
 func nextPowerOfTwo(n int) int {
 	num := uint32(n)
 	return 1 << bits.Len32(num-1)
