@@ -86,6 +86,17 @@ func TestSegment_Simple_Set_Get(t *testing.T) {
 	assert.Equal(t, uint64(1), s.getHitCount())
 }
 
+func TestSegment_Simple_Set_With_Not_Enough_Space(t *testing.T) {
+	s := newSegment()
+	s.put(40, []byte{1, 2, 3}, []byte{10, 11, 12, 13, 14, 15})
+
+	data := make([]byte, 5)
+	n, ok := s.get(40, []byte{1, 2, 3}, data)
+	assert.Equal(t, true, ok)
+	assert.Equal(t, 6, n)
+	assert.Equal(t, []byte{10, 11, 12, 13, 14}, data)
+}
+
 func TestSegment_Set_Get_Not_Equal_Hash(t *testing.T) {
 	s := newSegment()
 	s.put(40, []byte{1, 2, 3}, []byte{10, 11, 12, 13})

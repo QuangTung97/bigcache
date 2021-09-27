@@ -142,7 +142,11 @@ func (s *segment) get(hash uint32, key []byte, value []byte) (n int, ok bool) {
 
 	atomic.AddUint64(&s.hitCount, 1)
 
-	s.rb.readAt(value[:header.valLen], offset+entryHeaderSize+int(header.keyLen))
+	readLen := int(header.valLen)
+	if readLen > len(value) {
+		readLen = len(value)
+	}
+	s.rb.readAt(value[:readLen], offset+entryHeaderSize+int(header.keyLen))
 
 	s.totalAccessTime -= uint64(header.accessTime)
 	header.accessTime = s.getNow()
