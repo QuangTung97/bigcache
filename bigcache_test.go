@@ -47,6 +47,10 @@ func TestCache(t *testing.T) {
 	assert.Equal(t, true, ok)
 	assert.Equal(t, []byte{20, 21, 22, 20}, value[:n])
 
+	n, ok = c.Get([]byte{10, 11, 13}, value)
+	assert.Equal(t, true, ok)
+	assert.Equal(t, []byte{20, 21, 22, 21}, value[:n])
+
 	n, ok = c.Get([]byte{10, 11, 15}, value)
 	assert.Equal(t, false, ok)
 	assert.Equal(t, []byte{}, value[:n])
@@ -60,6 +64,9 @@ func TestCache(t *testing.T) {
 	n, ok = c.Get([]byte{10, 11, 12}, value)
 	assert.Equal(t, false, ok)
 	assert.Equal(t, []byte{}, value[:n])
+
+	assert.Equal(t, uint64(2), c.GetHitCount())
+	assert.Equal(t, uint64(4), c.GetAccessCount())
 }
 
 func TestCache_New_Panic(t *testing.T) {

@@ -70,6 +70,24 @@ func (c *Cache) Delete(key []byte) bool {
 	return affected
 }
 
+// GetHitCount ...
+func (c *Cache) GetHitCount() uint64 {
+	count := uint64(0)
+	for i := range c.segments {
+		count += c.segments[i].getHitCount()
+	}
+	return count
+}
+
+// GetAccessCount ...
+func (c *Cache) GetAccessCount() uint64 {
+	count := uint64(0)
+	for i := range c.segments {
+		count += c.segments[i].getAccessCount()
+	}
+	return count
+}
+
 func nextPowerOfTwo(n int) int {
 	num := uint32(n)
 	return 1 << bits.Len32(num-1)
