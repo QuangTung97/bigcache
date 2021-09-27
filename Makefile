@@ -1,4 +1,4 @@
-.PHONY: lint test install-tools
+.PHONY: lint test install-tools escape
 
 lint:
 	go fmt ./...
@@ -12,3 +12,6 @@ test:
 install-tools:
 	go install github.com/matryer/moq
 	go install github.com/mgechev/revive
+
+escape:
+	go build -gcflags '-m -m  -l' .

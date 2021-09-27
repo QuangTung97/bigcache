@@ -11,13 +11,16 @@ type segment struct {
 	mu     sync.Mutex
 	rb     ringBuf
 	kv     map[uint32]int
-	total  uint64
 	getNow func() uint32
 
 	maxConsecutiveEvacuation int
 	totalAccessTime          uint64
 
-	_padding [34]byte // for align with cache lines
+	total       uint64
+	accessCount uint64
+	hitCount    uint64
+
+	_padding [18]byte // for align with cache lines
 }
 
 type entryHeader struct {
@@ -110,9 +113,11 @@ func (s *segment) evacuate(expectedSize int) {
 		if header.deleted || expired || consecutiveEvacuation >= s.maxConsecutiveEvacuation {
 			consecutiveEvacuation = 0
 			s.rb.skip(size)
-			delete(s.kv, header.hash)
-			atomic.AddUint64(&s.total, ^uint64(0))
-			s.totalAccessTime -= uint64(header.accessTime)
+			if !header.deleted {
+				delete(s.kv, header.hash)
+				atomic.AddUint64(&s.total, ^uint64(0))
+				s.totalAccessTime -= uint64(header.accessTime)
+			}
 		} else {
 			prevEnd := s.rb.evacuate(size)
 			s.kv[header.hash] = prevEnd
@@ -122,6 +127,7 @@ func (s *segment) evacuate(expectedSize int) {
 }
 
 func (s *segment) get(hash uint32, key []byte, value []byte) (n int, ok bool) {
+	atomic.AddUint64(&s.accessCount, 1)
 	offset, ok := s.kv[hash]
 	if !ok {
 		return 0, false
@@ -133,6 +139,8 @@ func (s *segment) get(hash uint32, key []byte, value []byte) (n int, ok bool) {
 	if !s.keyEqual(header, offset, key) {
 		return 0, false
 	}
+
+	atomic.AddUint64(&s.hitCount, 1)
 
 	s.rb.readAt(value[:header.valLen], offset+entryHeaderSize+int(header.keyLen))
 
@@ -178,6 +186,14 @@ func (s *segment) keyEqual(header *entryHeader, offset int, key []byte) bool {
 
 func (s *segment) getTotal() uint64 {
 	return atomic.LoadUint64(&s.total)
+}
+
+func (s *segment) getHitCount() uint64 {
+	return atomic.LoadUint64(&s.hitCount)
+}
+
+func (s *segment) getAccessCount() uint64 {
+	return atomic.LoadUint64(&s.accessCount)
 }
 
 func nextNumberAlignToHeader(n uint32) uint32 {

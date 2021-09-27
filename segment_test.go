@@ -6,7 +6,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"math/rand"
 	"testing"
-	"time"
 	"unsafe"
 )
 
@@ -82,6 +81,9 @@ func TestSegment_Simple_Set_Get(t *testing.T) {
 	assert.Equal(t, 0, s.rb.getBegin())
 	assert.Equal(t, entryHeaderSize+8, s.rb.getEnd())
 	assert.Equal(t, 1024-entryHeaderSize-8, s.rb.getAvailable())
+
+	assert.Equal(t, uint64(1), s.getAccessCount())
+	assert.Equal(t, uint64(1), s.getHitCount())
 }
 
 func TestSegment_Set_Get_Not_Equal_Hash(t *testing.T) {
@@ -91,15 +93,23 @@ func TestSegment_Set_Get_Not_Equal_Hash(t *testing.T) {
 	n, ok := s.get(50, []byte{1, 2, 3}, nil)
 	assert.Equal(t, false, ok)
 	assert.Equal(t, 0, n)
+
+	assert.Equal(t, uint64(1), s.getAccessCount())
+	assert.Equal(t, uint64(0), s.getHitCount())
 }
 
 func TestSegment_Set_Get_Key_Not_Equal_Length(t *testing.T) {
 	s := newSegment()
 	s.put(40, []byte{1, 2, 3, 4, 5, 6, 7, 8}, []byte{10, 11, 12, 13})
 
+	assert.Equal(t, uint64(0), s.getAccessCount())
+
 	n, ok := s.get(40, []byte{1, 2, 3}, nil)
 	assert.Equal(t, false, ok)
 	assert.Equal(t, 0, n)
+
+	assert.Equal(t, uint64(1), s.getAccessCount())
+	assert.Equal(t, uint64(0), s.getHitCount())
 }
 
 func TestSegment_Set_Get_Not_Equal_Key(t *testing.T) {
@@ -109,6 +119,9 @@ func TestSegment_Set_Get_Not_Equal_Key(t *testing.T) {
 	n, ok := s.get(40, []byte{1, 2, 4}, nil)
 	assert.Equal(t, false, ok)
 	assert.Equal(t, 0, n)
+
+	assert.Equal(t, uint64(1), s.getAccessCount())
+	assert.Equal(t, uint64(0), s.getHitCount())
 }
 
 func TestSegment_Get_Access_Time(t *testing.T) {
@@ -411,6 +424,29 @@ func TestSegment_Delete_Same_Hash_Diff_Key(t *testing.T) {
 	assert.Equal(t, s.totalAccessTime, s.getSumTotalAccessTime())
 }
 
+func TestSegment_Delete_Already_Deleted(t *testing.T) {
+	s := newSegment()
+	s.getNow = monoGetNow(200)
+
+	s.put(40, []byte{1, 2, 3}, []byte{101, 102, 103, 104})
+	s.put(41, []byte{1, 2, 4}, []byte{101, 102, 103, 105})
+
+	affected := s.delete(40, []byte{1, 2, 3})
+	assert.Equal(t, true, affected)
+
+	assert.Equal(t, uint64(1), s.getTotal())
+
+	affected = s.delete(40, []byte{1, 2, 3})
+	assert.Equal(t, false, affected)
+
+	assert.Equal(t, uint64(1), s.getTotal())
+
+	data := make([]byte, 100)
+	n, ok := s.get(40, []byte{1, 2, 3}, data)
+	assert.Equal(t, false, ok)
+	assert.Equal(t, 0, n)
+}
+
 func TestSegment_Put_Evacuate_After_Deleted(t *testing.T) {
 	const entrySize = entryHeaderSize + 8
 	s := newSegmentSize(entrySize * 5)
@@ -426,9 +462,13 @@ func TestSegment_Put_Evacuate_After_Deleted(t *testing.T) {
 	s.get(40, []byte{1, 2, 0}, data)
 	s.delete(40, []byte{1, 2, 0})
 
+	assert.Equal(t, uint64(4), s.getTotal())
+	assert.Equal(t, 4, len(s.kv))
+
 	s.put(45, []byte{1, 2, 5}, []byte{101, 102, 103, 105})
 
-	assert.Equal(t, uint64(4), s.getTotal())
+	assert.Equal(t, uint64(5), s.getTotal())
+	assert.Equal(t, 5, len(s.kv))
 
 	data = make([]byte, 100)
 	n, ok := s.get(41, []byte{1, 2, 1}, data)
@@ -486,29 +526,27 @@ func TestSegment_Put_Evacuate_Need_Reset_ConsecutiveEvacuation(t *testing.T) {
 }
 
 func fillRandom(data []byte) {
-	for i := range data {
-		v := byte(rand.Intn(256))
-		data[i] = v
+	_, err := rand.Read(data)
+	if err != nil {
+		panic(err)
 	}
 }
 
 func appendKeyValue(key []byte, val []byte) []byte {
-	data := make([]byte, len(key)-1+len(val))
-	copy(data, key[1:])
-	copy(data[len(key)-1:], val)
+	data := make([]byte, len(key)+len(val)-1)
+	copy(data, key)
+	copy(data[len(key):], val[1:])
 	return data
 }
 
 func TestAppendKeyValue(t *testing.T) {
 	data := appendKeyValue([]byte{1, 2, 3}, []byte{4, 5, 6, 7})
-	assert.Equal(t, []byte{2, 3, 4, 5, 6, 7}, data)
+	assert.Equal(t, []byte{1, 2, 3, 5, 6, 7}, data)
 }
 
 func TestSegment_Stress_Testing(t *testing.T) {
 	s := newSegmentSize(123456)
 	s.getNow = monoGetNow(0)
-
-	rand.Seed(time.Now().Unix())
 
 	type keyUsed struct {
 		hash uint64
@@ -524,43 +562,58 @@ func TestSegment_Stress_Testing(t *testing.T) {
 
 	for i := 0; i < keyCount; i++ {
 		keyLen := 2 + rand.Intn(10)
-		valueLen := 1 + rand.Intn(15)
 		key := make([]byte, keyLen)
+		fillRandom(key)
+		hash := memhash.Hash(key) & 0xfff
+		keyUsedList = append(keyUsedList, keyUsed{
+			key:  key,
+			hash: hash,
+		})
+	}
+
+	for i := 0; i < keyCount*3; i++ {
+		valueLen := 1 + rand.Intn(50)
 		value := make([]byte, valueLen)
-		fillRandom(key[1:])
 		fillRandom(value)
 
 		for k := 0; k < touchCount; k++ {
-			if len(keyUsedList) < 1000 {
-				break
-			}
-			index := rand.Intn(len(keyUsedList))
+			index := rand.Intn(keyCount)
 			e := keyUsedList[index]
 			s.get(uint32(e.hash), e.key, placeholder)
 		}
 
-		h := memhash.Hash(appendKeyValue(key, value))
-		key[0] = uint8(h)
-		keyUsedList = append(keyUsedList, keyUsed{
-			hash: h,
-			key:  key,
-		})
+		index := rand.Intn(keyCount)
+		e := keyUsedList[index]
 
-		s.put(uint32(h), key, value)
+		h := memhash.Hash(appendKeyValue(e.key, value))
+		value[0] = uint8(h)
+
+		putOrDelete := rand.Intn(3)
+		if putOrDelete < 2 {
+			s.put(uint32(e.hash), e.key, value)
+		} else {
+			s.delete(uint32(e.hash), e.key)
+		}
 	}
 
-	hitCount := 0
 	for _, e := range keyUsedList {
 		data := make([]byte, 100)
 		n, ok := s.get(uint32(e.hash), e.key, data)
 		if ok {
-			hitCount++
 			value := data[:n]
 			h := memhash.Hash(appendKeyValue(e.key, value))
-			assert.Equal(t, uint8(h), e.key[0])
+			assert.Equal(t, uint8(h), value[0])
 		}
 	}
-	fmt.Println(hitCount)
+
+	assert.Equal(t, uint64((touchCount*3+1)*keyCount), s.getAccessCount())
+	assert.Equal(t, len(s.kv), int(s.getTotal()))
+	assert.Equal(t, s.totalAccessTime, s.getSumTotalAccessTime())
+
+	fmt.Println(s.getHitCount())
+	fmt.Println(s.getAccessCount())
+	fmt.Println("TOTAL:", s.getTotal())
+	fmt.Println("LEN:", len(s.kv))
 }
 
 func BenchmarkSegmentPut(b *testing.B) {
